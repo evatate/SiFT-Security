@@ -1,0 +1,70 @@
+# Environments
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.keystore
+*.wallet
+*.secret
+secrets.json
+config.local.json
+credentials.json
+
+# Node.js if implemented
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+.venv/
+env/
+venv/
+.env/
+.envrc
+
+# Rust
+target/
+Cargo.lock
+
+# Testing
+coverage/
+*.cover
+*.lcov
+.nyc_output/
+
+# Build
+dist/
+build/
+out/
+.tmp/
+.cache/
+
+# IDE & OS
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Misc
+*.bak
+*.tmp
+*.old
