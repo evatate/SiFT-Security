@@ -54,7 +54,7 @@ class Server:
             allrecords = f.read().decode(self.server_usersfile_coding)
         records = allrecords.split(self.server_usersfile_rec_delimiter)
         for r in records:
-            if not r.strip():  # Skip empty lines
+            if not r.strip(): # skip empty lines
                 continue
             fields = r.split(self.server_usersfile_fld_delimiter)
             username = fields[0]
@@ -87,7 +87,7 @@ class Server:
 
         loginp = SiFT_LOGIN(mtp)
         
-        # Load server's RSA private key
+        # Load servers RSA private key
         try:
             loginp.load_rsa_private_key(self.server_privkeyfile)
         except SiFT_LOGIN_Error as e:
