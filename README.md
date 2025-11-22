@@ -1,116 +1,150 @@
-# SiFT v1.0 - Simple File Transfer Protocol with Cryptographic Security
-
-**Authors:** Eva Tate (@evatate) and Tara Salli (@taramsalli)
-
-**Date:** December 2025  
+# SiFTv1.0 - Tara Salli and Eva Tate
 
 ## Overview
 
-SiFT v1.0 is a secure file transfer protocol that adds end-to-end encryption, mutual authentication, and replay protection to the baseline v0.5 protocol.
+This project implements the SiFT v1.0 secure file transfer server and client, extending the provided v0.5 framework by completing the login protocol, message transfer protocol, directory and file operations, and key generation.
 
-### Key Features
+The following components were modified or added:
 
-- **AES-256-GCM** encryption for all messages
-- **RSA-2048** key exchange with HKDF key derivation
-- **Replay protection** via sequence numbers
-- **Mutual authentication** (RSA + password)
-- **7 file commands:** pwd, ls, cd, mkd, del, upl, dnl
+* **client.py** – updated to support the full login protocol, RSA-encrypted temporary key exchange, HKDF session key derivation, and MTP integration.
+* **server.py** – updated to decrypt the temporary key, derive session keys, enforce sequence numbers, and correctly handle authentication, directories, upload/download, and file errors.
+* **siftmtp.py** – added AES-GCM encryption/decryption, nonce construction, direction indicators, sequence number enforcement, temporary key use during login, and session key switching after login.
+* **siftlogin.py** – updated to implement the complete key exchange (RSA-encrypted ETK, server decryption, HKDF derivation of client→server and server→client keys).
+* **generate_keys.py** – new script to generate server_key.pem and server_pubkey.pem.
 
-### Security Primitives
+SiFTv1.0 now supports authenticated sessions, encrypted messaging, directory navigation, upload and download, and replay-protected sequence numbers.
 
-| Primitive | Purpose |
-|-----------|---------|
-| RSA-2048 (OAEP) | Key exchange |
-| AES-256-GCM | Encryption & authentication |
-| HKDF-SHA256 | Key derivation (4 × 32-byte keys) |
-| PBKDF2-SHA256 | Password hashing (100k iterations) |
+---
 
-## Protocol Design
+## Setup: Key Generation
 
-### Message Format (16-byte header + encrypted payload + 12-byte MAC)
+Run once from the root before first use:
 
-Header: ver(2) | typ(2) | len(2) | sqn(2) | rnd(6) | rsv(2)
-
-### Key Exchange Flow
-
-1. Client generates 32-byte temp_key and 16-byte client_random
-2. Client encrypts temp_key with server's RSA public key → login_req
-3. Server decrypts temp_key, generates 16-byte server_random → login_res
-4. Both derive session keys: `HKDF(client_random || server_random)`
-
-## Implementation
-
-### Directory Structure
 ```
-server/
-├── server.py, server_key.pem, users.txt
-└── siftprotocols/ (6 modules)
-
-client/
-├── client.py, server_pubkey.pem, test files
-└── siftprotocols/ (6 modules)
-```
-
-## Installation
-
-**Prerequisites:** Python 3.6+, PyCryptodome
-
-```bash
-pip3 install pycryptodome
-```
-
-**Setup:**
-```bash
-# 1. Generate keys
 python3 generate_keys.py
-
-# 2. Deploy keys
-cp server_key.pem server/
-cp server_pubkey.pem client/
-
-# 3. Start server
-cd server && python3 server.py
-
-# 4. Start client (new terminal)
-cd client && python3 client.py
-
-# 5. Login (test accounts)
-# alice/aaa, bob/bbb, or charlie/ccc
 ```
 
-## Testing
+This creates:
 
-Run unit tests for crypto components:
-```bash
-python3 -c "from Crypto.Cipher import AES; from Crypto.Random import get_random_bytes; cipher = AES.new(get_random_bytes(32), AES.MODE_GCM, nonce=get_random_bytes(12)); print('✓ AES-GCM')"
+* **server_key.pem** — server private key
+* **server_pubkey.pem** — server public key
+
+Next:
+
+* Place **server_key.pem** in the **server** directory.
+* Place **server_pubkey.pem** in the **client** directory.
+
+The client uses the public key to encrypt the temporary AES key.
+The server uses the private key to decrypt it.
+
+---
+
+## Next Step: Run the server and client
+
+### Server
+
+Start the server:
+
+```
+cd server
+python3 server.py
 ```
 
-## Security Analysis
+The server listens for incoming client connections and handles login, commands, uploads, and downloads.
 
-**Protects against:** Eavesdropping, tampering, replay attacks, MITM, impersonation
+### Client
 
-**Limitations:** No perfect forward secrecy, no DoS protection, no rate limiting
+Start the client:
 
-**Best practices:** Secure server_key.pem (chmod 600), use strong passwords, monitor logs
+```
+cd client
+python3 client.py
+```
 
-## Troubleshooting
+This will result in:
 
-| Issue | Solution |
-|-------|----------|
-| Module 'Crypto' not found | `pip3 install pycryptodome` |
-| Server key not found | Run `generate_keys.py` and copy to server/ |
-| MAC verification failed | Restart both, ensure both have v1.0 files |
-| Sequence mismatch | Logout and login to reset |
+```
+Username:
+Password:
+```
 
-**Debug mode:** Set `self.DEBUG = True` in siftmtp.py and siftlogin.py
+After a successful login, you get the interactive shell:
 
-## Documentation
+```
+(sift)
+```
 
-See `/docs` for complete documentation:
-- `QUICK_DEPLOYMENT_GUIDE.md` - Step-by-step deployment
-- `IMPLEMENTATION_PLAN.md` - Technical specifications  
+---
 
-## Authors
+## Commands
 
-**Eva Tate and Tara Salli**  
-AIT Budapest - Cryptography Course Final Project - Fall 2025
+```
+pwd                 print current directory  
+ls                  list files and directories  
+cd <dir>            change directory  
+mkd <dir>           create directory  
+del <name>          delete file or empty directory  
+upl <localfile>     upload file to server  
+dnl <remotefile>    download file from server  
+bye                 exit session  
+```
+
+---
+
+## Basic Tests We Ran
+
+1. Start in root:
+
+```
+(sift) pwd
+/
+(sift) ls
+[empty]
+```
+
+2. Create and verify directory:
+
+```
+(sift) mkd testdir
+(sift) ls
+testdir/
+```
+
+3. Upload a file:
+
+```
+(sift) upl test_1.txt
+Starting upload...
+Completed.
+```
+
+4. Change directory:
+
+```
+(sift) cd testdir
+(sift) pwd
+/testdir/
+```
+
+5. Download a file:
+
+```
+(sift) cd ..
+(sift) dnl test_1.txt
+Completed.
+```
+
+6. Exit:
+
+```
+(sift) bye
+```
+
+---
+
+## Notes on Functinoality
+
+* Login messages use the temporary AES key established through RSA encryption.
+* After login, all messages use AES-GCM with HKDF-derived session keys.
+* MTP enforces sequence numbers for replay protection in both directions.
+* User directories are stored under `users/<username>/`.
