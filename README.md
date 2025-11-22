@@ -51,8 +51,6 @@ client/
 └── siftprotocols/ (6 modules)
 ```
 
-**Code:** ~1,790 lines Python | Multi-threaded server | 5 protocol modules
-
 ## Installation
 
 **Prerequisites:** Python 3.6+, PyCryptodome
@@ -87,10 +85,6 @@ Run unit tests for crypto components:
 python3 -c "from Crypto.Cipher import AES; from Crypto.Random import get_random_bytes; cipher = AES.new(get_random_bytes(32), AES.MODE_GCM, nonce=get_random_bytes(12)); print('✓ AES-GCM')"
 ```
 
-**Integration tests:** Login, commands, upload/download, multi-user
-
-**Performance:** ~25ms login, ~0.1ms per message, ~6.7 MB/s file transfer
-
 ## Security Analysis
 
 **Protects against:** Eavesdropping, tampering, replay attacks, MITM, impersonation
@@ -115,33 +109,8 @@ python3 -c "from Crypto.Cipher import AES; from Crypto.Random import get_random_
 See `/docs` for complete documentation:
 - `QUICK_DEPLOYMENT_GUIDE.md` - Step-by-step deployment
 - `IMPLEMENTATION_PLAN.md` - Technical specifications  
-- `TESTING_GUIDE.md` - Testing procedures
-- `V0.5_VS_V1.0_COMPARISON.md` - Version comparison
-
-## References
-
-**Standards:** NIST SP 800-38D (AES-GCM), RFC 8017 (RSA-OAEP), RFC 5869 (HKDF), RFC 8018 (PBKDF2)  
-**Library:** PyCryptodome (https://pycryptodome.readthedocs.io/)
 
 ## Authors
 
 **Eva Tate and Tara Salli**  
-Cryptography Course Project - Fall 2025
-
----
-
-## Quick Reference
-
-```bash
-# Setup
-pip3 install pycryptodome
-python3 generate_keys.py
-cp server_key.pem server/ && cp server_pubkey.pem client/
-
-# Run
-cd server && python3 server.py     # Terminal 1
-cd client && python3 client.py     # Terminal 2
-
-# Login: alice/aaa, bob/bbb, charlie/ccc
-# Commands: pwd, ls, cd, mkd, del, upl, dnl, bye
-```
+AIT Budapest - Cryptography Course Final Project - Fall 2025
