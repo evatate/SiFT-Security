@@ -2,7 +2,21 @@
 
 ## Overview
 
-This project implements the SiFT v1.0 secure file transfer server and client, extending the provided v0.5 framework by completing the login protocol, message transfer protocol, directory and file operations, and key generation.
+SiFT v1.0 is a secure file transfer system implementing a client-server architecture. This project extends the provided v0.5 framework by fully implementing the login protocol, message transfer protocol (MTP), directory and file operations, and RSA/AES-based key management.
+
+We focused on designing a secure, replay-protected, authenticated messaging protocol with encrypted sessions. The project included:
+
+* **Public-key cryptography (RSA-2048):** Secure temporary key exchange between client and server.
+* **Symmetric-key cryptography (AES-GCM):** Encrypting all messages after login, with authentication tags for integrity.
+* **Key derivation (HKDF):** Creating client→server and server→client session keys from the temporary AES key.
+* **Replay protection:** Sequence numbers enforced in the message transfer protocol (MTP).
+* **Networking with Python sockets:** Handling multiple client commands, file upload/download, and directory navigation.
+* **Software architecture and modularization:** Clear separation of concerns across `client.py`, `server.py`, `siftmtp.py`, and `siftlogin.py`.
+* **Practical scripting:** RSA key generation with `generate_keys.py` and secure management of public/private keys.
+
+The project involved hands-on experience implementing security protocols and end-to-end encrypted communication, applying advanced cryptographic techniques alongside full-stack Python development skills.
+
+___
 
 The following components were modified or added:
 
