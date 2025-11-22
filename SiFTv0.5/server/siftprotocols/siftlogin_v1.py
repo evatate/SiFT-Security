@@ -1,0 +1,421 @@
+#python3
+
+import os
+from Crypto.Hash import SHA256
+from Crypto.Protocol.KDF import PBKDF2, HKDF
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Random import get_random_bytes
+from siftprotocols.siftmtp import SiFT_MTP, SiFT_MTP_Error
+
+
+class SiFT_LOGIN_Error(Exception):
+
+    def __init__(self, err_msg):
+        self.err_msg = err_msg
+
+class SiFT_LOGIN:
+    def __init__(self, mtp):
+
+        self.DEBUG = True
+        # --------- CONSTANTS ------------
+        self.delimiter = '\n'
+        self.coding = 'utf-8'
+        self.size_temp_key = 32  # 32-byte AES key
+        self.size_random = 16    # 16-byte random value
+        # --------- STATE ------------
+        self.mtp = mtp
+        self.server_users = None
+        self.rsa_key = None  # RSA key (public for client, private for server)
+
+
+    def set_rsa_key(self, rsa_key):
+        """
+        Set RSA key for encryption/decryption.
+        
+        Args:
+            rsa_key: RSA public key (client) or private key (server)
+        """
+        self.rsa_key = rsa_key
+
+
+    def load_rsa_public_key(self, pubkey_file):
+        """
+        Load RSA public key from PEM file (for client).
+        
+        Args:
+            pubkey_file: Path to PEM file containing public key
+        """
+        try:
+            with open(pubkey_file, 'rb') as f:
+                self.rsa_key = RSA.import_key(f.read())
+            
+            # Verify it's a public key
+            if self.rsa_key.has_private():
+                raise SiFT_LOGIN_Error('Expected public key, but got private key')
+                
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to load RSA public key --> {str(e)}')
+
+
+    def load_rsa_private_key(self, privkey_file):
+        """
+        Load RSA private key from PEM file (for server).
+        
+        Args:
+            privkey_file: Path to PEM file containing private key
+        """
+        try:
+            with open(privkey_file, 'rb') as f:
+                self.rsa_key = RSA.import_key(f.read())
+            
+            # Verify it's a private key
+            if not self.rsa_key.has_private():
+                raise SiFT_LOGIN_Error('Expected private key, but got public key')
+                
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to load RSA private key --> {str(e)}')
+
+
+    def set_server_users(self, users):
+        """
+        Set user passwords dictionary (to be used by the server).
+        
+        Args:
+            users: Dictionary mapping usernames to user credential structures
+        """
+        self.server_users = users
+
+
+    def build_login_req(self, login_req_struct):
+        """
+        Build login request payload.
+        
+        Args:
+            login_req_struct: Dictionary with 'username', 'password', 'client_random'
+        
+        Returns:
+            Encoded login request payload
+        """
+        login_req_str = login_req_struct['username']
+        login_req_str += self.delimiter + login_req_struct['password']
+        login_req_str += self.delimiter + login_req_struct['client_random'].hex()
+        return login_req_str.encode(self.coding)
+
+
+    def parse_login_req(self, login_req):
+        """
+        Parse login request payload.
+        
+        Args:
+            login_req: Encoded login request payload
+        
+        Returns:
+            Dictionary with parsed fields
+        """
+        login_req_fields = login_req.decode(self.coding).split(self.delimiter)
+        login_req_struct = {}
+        login_req_struct['username'] = login_req_fields[0]
+        login_req_struct['password'] = login_req_fields[1]
+        login_req_struct['client_random'] = bytes.fromhex(login_req_fields[2])
+        return login_req_struct
+
+
+    def build_login_res(self, login_res_struct):
+        """
+        Build login response payload.
+        
+        Args:
+            login_res_struct: Dictionary with 'request_hash' and 'server_random'
+        
+        Returns:
+            Encoded login response payload
+        """
+        login_res_str = login_res_struct['request_hash'].hex()
+        login_res_str += self.delimiter + login_res_struct['server_random'].hex()
+        return login_res_str.encode(self.coding)
+
+
+    def parse_login_res(self, login_res):
+        """
+        Parse login response payload.
+        
+        Args:
+            login_res: Encoded login response payload
+        
+        Returns:
+            Dictionary with parsed fields
+        """
+        login_res_fields = login_res.decode(self.coding).split(self.delimiter)
+        login_res_struct = {}
+        login_res_struct['request_hash'] = bytes.fromhex(login_res_fields[0])
+        login_res_struct['server_random'] = bytes.fromhex(login_res_fields[1])
+        return login_res_struct
+
+
+    def check_password(self, pwd, usr_struct):
+        """
+        Check correctness of a provided password.
+        
+        Args:
+            pwd: Password to check
+            usr_struct: User structure with salt, pwdhash, icount
+        
+        Returns:
+            True if password is correct, False otherwise
+        """
+        pwdhash = PBKDF2(pwd, usr_struct['salt'], len(usr_struct['pwdhash']), 
+                        count=usr_struct['icount'], hmac_hash_module=SHA256)
+        if pwdhash == usr_struct['pwdhash']: 
+            return True
+        return False
+
+
+    def derive_session_keys(self, client_random, server_random):
+        """
+        Derive session keys using HKDF-SHA256.
+        
+        Args:
+            client_random: 16-byte client random value
+            server_random: 16-byte server random value
+        
+        Returns:
+            Tuple of (client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key)
+        """
+        # Master secret is concatenation of client and server randoms
+        master_secret = client_random + server_random
+        
+        # Derive keys using HKDF-SHA256
+        # No salt (salt=None means use zeros)
+        client_encrypt_key = HKDF(master_secret, 32, salt=None, 
+                                  hashmod=SHA256, context=b'client_encryption_key')
+        client_mac_key = HKDF(master_secret, 32, salt=None, 
+                             hashmod=SHA256, context=b'client_MAC_key')
+        server_encrypt_key = HKDF(master_secret, 32, salt=None, 
+                                  hashmod=SHA256, context=b'server_encryption_key')
+        server_mac_key = HKDF(master_secret, 32, salt=None, 
+                             hashmod=SHA256, context=b'server_MAC_key')
+        
+        return client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key
+
+
+    def handle_login_server(self):
+        """
+        Handle login process on the server side.
+        
+        Returns:
+            Username of logged-in user
+        
+        Raises:
+            SiFT_LOGIN_Error: On any login failure
+        """
+        if not self.server_users:
+            raise SiFT_LOGIN_Error('User database is required for handling login at server')
+
+        if not self.rsa_key or not self.rsa_key.has_private():
+            raise SiFT_LOGIN_Error('RSA private key required for server login')
+
+        # Trying to receive a login request
+        try:
+            msg_type, msg_payload, etk = self.mtp.receive_msg()
+        except SiFT_MTP_Error as e:
+            raise SiFT_LOGIN_Error('Unable to receive login request --> ' + e.err_msg)
+
+        # DEBUG 
+        if self.DEBUG:
+            print('Incoming login request payload (' + str(len(msg_payload)) + '):')
+            print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
+            print('ETK (' + str(len(etk)) + '): ' + etk.hex()[:64] + '...')
+            print('------------------------------------------')
+        # DEBUG 
+
+        if msg_type != self.mtp.type_login_req:
+            raise SiFT_LOGIN_Error('Login request expected, but received something else')
+
+        # Decrypt temporary key from etk using RSA-OAEP
+        try:
+            cipher = PKCS1_OAEP.new(self.rsa_key)
+            temp_key = cipher.decrypt(etk)
+            
+            if len(temp_key) != self.size_temp_key:
+                raise SiFT_LOGIN_Error('Decrypted temporary key has incorrect size')
+            
+            # Set temporary key in MTP for future messages during this session
+            self.mtp.set_temp_key(temp_key)
+            
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to decrypt temporary key --> {str(e)}')
+
+        # Compute hash of login request payload
+        hash_fn = SHA256.new()
+        hash_fn.update(msg_payload)
+        request_hash = hash_fn.digest()
+
+        # Parse login request
+        try:
+            login_req_struct = self.parse_login_req(msg_payload)
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to parse login request --> {str(e)}')
+
+        # Verify client_random size
+        if len(login_req_struct['client_random']) != self.size_random:
+            raise SiFT_LOGIN_Error('Client random has incorrect size')
+
+        # Check username and password
+        if login_req_struct['username'] in self.server_users:
+            if not self.check_password(login_req_struct['password'], 
+                                      self.server_users[login_req_struct['username']]):
+                raise SiFT_LOGIN_Error('Password verification failed')
+        else:
+            raise SiFT_LOGIN_Error('Unknown user attempted to log in')
+
+        # Generate server random
+        server_random = get_random_bytes(self.size_random)
+
+        # Build login response
+        login_res_struct = {}
+        login_res_struct['request_hash'] = request_hash
+        login_res_struct['server_random'] = server_random
+        msg_payload = self.build_login_res(login_res_struct)
+
+        # DEBUG 
+        if self.DEBUG:
+            print('Outgoing login response payload (' + str(len(msg_payload)) + '):')
+            print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
+            print('------------------------------------------')
+        # DEBUG 
+
+        # Derive session keys
+        client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
+            self.derive_session_keys(login_req_struct['client_random'], server_random)
+
+        # DEBUG
+        if self.DEBUG:
+            print('Derived session keys:')
+            print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
+            print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
+            print('------------------------------------------')
+        # DEBUG
+
+        # Set session keys in MTP (server side, so is_client=False)
+        self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=False)
+
+        # Send login response
+        try:
+            self.mtp.send_msg(self.mtp.type_login_res, msg_payload)
+        except SiFT_MTP_Error as e:
+            raise SiFT_LOGIN_Error('Unable to send login response --> ' + e.err_msg)
+
+        # DEBUG 
+        if self.DEBUG:
+            print('User ' + login_req_struct['username'] + ' logged in')
+        # DEBUG 
+
+        return login_req_struct['username']
+
+
+    def handle_login_client(self, username, password):
+        """
+        Handle login process on the client side.
+        
+        Args:
+            username: Username for login
+            password: Password for login
+        
+        Raises:
+            SiFT_LOGIN_Error: On any login failure
+        """
+        if not self.rsa_key or self.rsa_key.has_private():
+            raise SiFT_LOGIN_Error('RSA public key required for client login')
+
+        # Generate temporary key
+        temp_key = get_random_bytes(self.size_temp_key)
+        
+        # Set temporary key in MTP for this login request
+        self.mtp.set_temp_key(temp_key)
+
+        # Encrypt temporary key with server's RSA public key using RSA-OAEP
+        try:
+            cipher = PKCS1_OAEP.new(self.rsa_key)
+            etk = cipher.encrypt(temp_key)
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to encrypt temporary key --> {str(e)}')
+
+        # Generate client random
+        client_random = get_random_bytes(self.size_random)
+
+        # Build login request
+        login_req_struct = {}
+        login_req_struct['username'] = username
+        login_req_struct['password'] = password
+        login_req_struct['client_random'] = client_random
+        msg_payload = self.build_login_req(login_req_struct)
+
+        # DEBUG 
+        if self.DEBUG:
+            print('Outgoing login request payload (' + str(len(msg_payload)) + '):')
+            print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
+            print('ETK (' + str(len(etk)) + '): ' + etk.hex()[:64] + '...')
+            print('------------------------------------------')
+        # DEBUG 
+
+        # Compute hash of request payload
+        hash_fn = SHA256.new()
+        hash_fn.update(msg_payload)
+        request_hash = hash_fn.digest()
+
+        # Send login request (with encrypted temporary key)
+        try:
+            self.mtp.send_msg(self.mtp.type_login_req, msg_payload, etk=etk)
+        except SiFT_MTP_Error as e:
+            raise SiFT_LOGIN_Error('Unable to send login request --> ' + e.err_msg)
+
+        # Try to receive a login response
+        try:
+            msg_type, msg_payload = self.mtp.receive_msg()
+        except SiFT_MTP_Error as e:
+            raise SiFT_LOGIN_Error('Unable to receive login response --> ' + e.err_msg)
+
+        # DEBUG 
+        if self.DEBUG:
+            print('Incoming login response payload (' + str(len(msg_payload)) + '):')
+            print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
+            print('------------------------------------------')
+        # DEBUG 
+
+        if msg_type != self.mtp.type_login_res:
+            raise SiFT_LOGIN_Error('Login response expected, but received something else')
+
+        # Parse login response
+        try:
+            login_res_struct = self.parse_login_res(msg_payload)
+        except Exception as e:
+            raise SiFT_LOGIN_Error(f'Failed to parse login response --> {str(e)}')
+
+        # Verify request hash
+        if login_res_struct['request_hash'] != request_hash:
+            raise SiFT_LOGIN_Error('Verification of login response failed')
+
+        # Verify server_random size
+        if len(login_res_struct['server_random']) != self.size_random:
+            raise SiFT_LOGIN_Error('Server random has incorrect size')
+
+        # Derive session keys
+        client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
+            self.derive_session_keys(client_random, login_res_struct['server_random'])
+
+        # DEBUG
+        if self.DEBUG:
+            print('Derived session keys:')
+            print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
+            print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
+            print('------------------------------------------')
+        # DEBUG
+
+        # Set session keys in MTP (client side, so is_client=True)
+        self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=True)
+
+        # DEBUG
+        if self.DEBUG:
+            print('Login successful, session keys established')
+        # DEBUG
