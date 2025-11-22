@@ -1,9 +1,8 @@
-[README.md](https://github.com/user-attachments/files/23691040/README.md)
 # SiFT v1.0 - Simple File Transfer Protocol with Cryptographic Security
 
 **Authors:** Eva Tate and Tara Salli  
 **Version:** 1.0  
-**Date:** November 2025  
+**Date:** December 2025  
 
 ## Overview
 
