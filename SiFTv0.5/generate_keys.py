@@ -10,29 +10,15 @@ from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 import sys
 
+# Generate RSA key pair of specified size
 def generate_rsa_keypair(key_size=2048):
-    """
-    Generate an RSA key pair of specified size.
-    
-    Args:
-        key_size: Size of the RSA key in bits (default: 2048)
-    
-    Returns:
-        RSA key object containing both private and public keys
-    """
     print(f"Generating {key_size}-bit RSA key pair...")
     key = RSA.generate(key_size)
     print("Key pair generated successfully!")
     return key
 
+# Save the private key (full key pair) in PEM format
 def save_private_key(key, filename='server_key.pem'):
-    """
-    Save the private key (full key pair) in PEM format.
-    
-    Args:
-        key: RSA key object
-        filename: Output filename for the private key
-    """
     private_key_pem = key.export_key(format='PEM')
     
     with open(filename, 'wb') as f:
@@ -41,14 +27,8 @@ def save_private_key(key, filename='server_key.pem'):
     print(f"Private key saved to: {filename}")
     return filename
 
+# Save the public key in PEM format
 def save_public_key(key, filename='server_pubkey.pem'):
-    """
-    Export and save only the public key in PEM format.
-    
-    Args:
-        key: RSA key object
-        filename: Output filename for the public key
-    """
     public_key_pem = key.publickey().export_key(format='PEM')
     
     with open(filename, 'wb') as f:
@@ -57,16 +37,14 @@ def save_public_key(key, filename='server_pubkey.pem'):
     print(f"Public key saved to: {filename}")
     return filename
 
+# Main function
 def main():
-    """
-    Main function to generate and save RSA key pair.
-    """
     print("=" * 60)
     print("SiFT v1.0 RSA Key Generation Utility")
     print("=" * 60)
     print()
     
-    # Generate the key pair
+    # Generate key pair
     key = generate_rsa_keypair(2048)
     
     print()
