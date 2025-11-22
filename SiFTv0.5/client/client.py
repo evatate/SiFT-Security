@@ -12,6 +12,7 @@ from siftprotocols.siftdnl import SiFT_DNL, SiFT_DNL_Error
 server_ip = '127.0.0.1' # localhost
 # server_ip = '192.168.x.y'
 server_port = 5150
+pubkey_file = 'server_pubkey.pem'  # Server's RSA public key
 # --------------------------------
 
 class SiFTShell(cmd.Cmd):
@@ -130,10 +131,10 @@ class SiFTShell(cmd.Cmd):
                 if cmd_res_struct['result_1'] == cmdp.res_reject:
                     print('Remote_Error: ' + cmd_res_struct['result_2'])
                 else:
-                    print('Strarting upload...')
+                    print('Starting upload...')
                     uplp = SiFT_UPL(mtp)
                     try:
-                        uplp.handle_upload_client(cmd_req_struct['param_1'])
+                        uplp.handle_upload_client(filepath)
                     except SiFT_UPL_Error as e:
                         print('Remote_Error: ' + e.err_msg)
                     else: 
@@ -189,8 +190,15 @@ class SiFTShell(cmd.Cmd):
 # --------------------------------------
 if __name__ == '__main__':
 
+    # Check if public key file exists
+    if not os.path.exists(pubkey_file):
+        print(f'Error: Server public key file "{pubkey_file}" not found!')
+        print('Please run generate_keys.py first and copy server_pubkey.pem to the client folder.')
+        sys.exit(1)
+
+    # Connect to server
     try:
-        sckt = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sckt.connect((server_ip, server_port))
     except:
         print('Network_Error: Cannot open connection to the server')
@@ -198,20 +206,38 @@ if __name__ == '__main__':
     else:
         print('Connection to server established on ' + server_ip + ':' + str(server_port))
 
+    # Create MTP instance
     mtp = SiFT_MTP(sckt)
+
+    # Create login protocol instance
     loginp = SiFT_LOGIN(mtp)
 
+    # Load server's RSA public key
+    try:
+        loginp.load_rsa_public_key(pubkey_file)
+        print(f'Server public key loaded from {pubkey_file}')
+    except SiFT_LOGIN_Error as e:
+        print('SiFT_LOGIN_Error: ' + e.err_msg)
+        sys.exit(1)
+
+    # Get credentials
     print()
     username = input('   Username: ')
     password = getpass.getpass('   Password: ')
     print()
 
+    # Perform login
     try:
         loginp.handle_login_client(username, password)
+        print('Login successful!')
+        print()
     except SiFT_LOGIN_Error as e:
         print('SiFT_LOGIN_Error: ' + e.err_msg)
+        sckt.close()
         sys.exit(1)
 
+    # Create command protocol instance
     cmdp = SiFT_CMD(mtp)
 
+    # Start interactive shell
     SiFTShell().cmdloop()
