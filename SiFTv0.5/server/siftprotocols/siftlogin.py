@@ -29,23 +29,13 @@ class SiFT_LOGIN:
         self.rsa_key = None  # RSA key (public for client, private for server)
 
 
+    # Set RSA key
     def set_rsa_key(self, rsa_key):
-        """
-        Set RSA key for encryption/decryption.
-        
-        Args:
-            rsa_key: RSA public key (client) or private key (server)
-        """
         self.rsa_key = rsa_key
 
 
+    # Load RSA public key from PEM file (for client)
     def load_rsa_public_key(self, pubkey_file):
-        """
-        Load RSA public key from PEM file (for client).
-        
-        Args:
-            pubkey_file: Path to PEM file containing public key
-        """
         try:
             with open(pubkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
@@ -57,13 +47,8 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to load RSA public key --> {str(e)}')
 
 
+    # Load RSA private key from PEM file (for server)
     def load_rsa_private_key(self, privkey_file):
-        """
-        Load RSA private key from PEM file (for server).
-        
-        Args:
-            privkey_file: Path to PEM file containing private key
-        """
         try:
             with open(privkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
@@ -75,26 +60,13 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to load RSA private key --> {str(e)}')
 
 
+    # Set user passwords dictionary (for server)
     def set_server_users(self, users):
-        """
-        Set user passwords dictionary (to be used by the server).
-        
-        Args:
-            users: Dictionary mapping usernames to user credential structures
-        """
         self.server_users = users
 
 
+    # Build and parse login request
     def build_login_req(self, login_req_struct):
-        """
-        Build login request payload.
-        
-        Args:
-            login_req_struct: Dictionary with 'username', 'password', 'client_random'
-        
-        Returns:
-            Encoded login request payload
-        """
         login_req_str = login_req_struct['username']
         login_req_str += self.delimiter + login_req_struct['password']
         login_req_str += self.delimiter + login_req_struct['client_random'].hex()
@@ -125,6 +97,7 @@ class SiFT_LOGIN:
         login_res_struct['request_hash'] = bytes.fromhex(login_res_fields[0])
         login_res_struct['server_random'] = bytes.fromhex(login_res_fields[1])
         return login_res_struct
+
 
     # Check password correctness
     def check_password(self, pwd, usr_struct):
