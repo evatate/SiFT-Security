@@ -1,6 +1,6 @@
 # SiFT v1.0 - Simple File Transfer Protocol with Cryptographic Security
 
-**Authors:** Eva Tate and Tara Salli  
+**Authors:** Eva Tate (@evatate) and Tara Salli (@taramsalli)
 **Version:** 1.0  
 **Date:** December 2025  
 
