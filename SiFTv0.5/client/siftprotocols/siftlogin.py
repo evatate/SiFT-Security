@@ -50,7 +50,6 @@ class SiFT_LOGIN:
             with open(pubkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
             
-            # Verify it's a public key
             if self.rsa_key.has_private():
                 raise SiFT_LOGIN_Error('Expected public key, but got private key')
                 
@@ -69,7 +68,6 @@ class SiFT_LOGIN:
             with open(privkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
             
-            # Verify it's a private key
             if not self.rsa_key.has_private():
                 raise SiFT_LOGIN_Error('Expected private key, but got public key')
                 
@@ -103,16 +101,8 @@ class SiFT_LOGIN:
         return login_req_str.encode(self.coding)
 
 
+    # Parse login request
     def parse_login_req(self, login_req):
-        """
-        Parse login request payload.
-        
-        Args:
-            login_req: Encoded login request payload
-        
-        Returns:
-            Dictionary with parsed fields
-        """
         login_req_fields = login_req.decode(self.coding).split(self.delimiter)
         login_req_struct = {}
         login_req_struct['username'] = login_req_fields[0]
@@ -121,49 +111,23 @@ class SiFT_LOGIN:
         return login_req_struct
 
 
+    # Build and parse login response
     def build_login_res(self, login_res_struct):
-        """
-        Build login response payload.
-        
-        Args:
-            login_res_struct: Dictionary with 'request_hash' and 'server_random'
-        
-        Returns:
-            Encoded login response payload
-        """
         login_res_str = login_res_struct['request_hash'].hex()
         login_res_str += self.delimiter + login_res_struct['server_random'].hex()
         return login_res_str.encode(self.coding)
 
 
+    # Parse login response
     def parse_login_res(self, login_res):
-        """
-        Parse login response payload.
-        
-        Args:
-            login_res: Encoded login response payload
-        
-        Returns:
-            Dictionary with parsed fields
-        """
         login_res_fields = login_res.decode(self.coding).split(self.delimiter)
         login_res_struct = {}
         login_res_struct['request_hash'] = bytes.fromhex(login_res_fields[0])
         login_res_struct['server_random'] = bytes.fromhex(login_res_fields[1])
         return login_res_struct
 
-
+    # Check password correctness
     def check_password(self, pwd, usr_struct):
-        """
-        Check correctness of a provided password.
-        
-        Args:
-            pwd: Password to check
-            usr_struct: User structure with salt, pwdhash, icount
-        
-        Returns:
-            True if password is correct, False otherwise
-        """
         pwdhash = PBKDF2(pwd, usr_struct['salt'], len(usr_struct['pwdhash']), 
                         count=usr_struct['icount'], hmac_hash_module=SHA256)
         if pwdhash == usr_struct['pwdhash']: 
@@ -171,22 +135,13 @@ class SiFT_LOGIN:
         return False
 
 
+    # Derive session keys
     def derive_session_keys(self, client_random, server_random):
-        """
-        Derive session keys using HKDF-SHA256.
-        
-        Args:
-            client_random: 16-byte client random value
-            server_random: 16-byte server random value
-        
-        Returns:
-            Tuple of (client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key)
-        """
         # Master secret is concatenation of client and server randoms
         master_secret = client_random + server_random
         
         # Derive keys using HKDF-SHA256
-        # No salt (salt=None means use zeros)
+        # No salt
         client_encrypt_key = HKDF(master_secret, 32, salt=None, 
                                   hashmod=SHA256, context=b'client_encryption_key')
         client_mac_key = HKDF(master_secret, 32, salt=None, 
@@ -199,25 +154,13 @@ class SiFT_LOGIN:
         return client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key
 
 
+    # Handle login on server side
     def handle_login_server(self):
-        """
-        Handle login process on the server side.
-        
-        Returns:
-            Username of logged-in user
-        
-        Raises:
-            SiFT_LOGIN_Error: On any login failure
-        """
         if not self.server_users:
             raise SiFT_LOGIN_Error('User database is required for handling login at server')
 
         if not self.rsa_key or not self.rsa_key.has_private():
             raise SiFT_LOGIN_Error('RSA private key required for server login')
-
-        # First, we need to manually receive and decrypt the etk to get the temporary key
-        # This is because receive_msg() needs the temp_key to decrypt, but we need to 
-        # decrypt etk first to get temp_key - it's a chicken-and-egg problem
         
         # Receive the header first
         try:
@@ -228,7 +171,7 @@ class SiFT_LOGIN:
         # Parse header
         parsed_msg_hdr = self.mtp.parse_msg_header(msg_hdr)
         
-        # Verify it's a login request
+        # Verify its a login request
         if parsed_msg_hdr['typ'] != self.mtp.type_login_req:
             raise SiFT_LOGIN_Error('Login request expected, but received something else')
         
@@ -271,7 +214,7 @@ class SiFT_LOGIN:
         except Exception as e:
             raise SiFT_LOGIN_Error(f'Failed to decrypt temporary key --> {str(e)}')
         
-        # Now decrypt the payload using the temporary key
+        # Decrypt the payload using the temporary key
         direction = self.mtp._get_direction(sending=False)
         
         try:
@@ -283,13 +226,11 @@ class SiFT_LOGIN:
         except SiFT_MTP_Error as e:
             raise SiFT_LOGIN_Error('Failed to decrypt login request --> ' + e.err_msg)
 
-        # DEBUG 
         if self.DEBUG:
             print('Incoming login request payload (' + str(len(msg_payload)) + '):')
             print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
             print('ETK (' + str(len(etk)) + '): ' + etk.hex()[:64] + '...')
             print('------------------------------------------')
-        # DEBUG 
         
         # Verify sequence number
         sqn_received = int.from_bytes(parsed_msg_hdr['sqn'], byteorder='big')
@@ -331,24 +272,20 @@ class SiFT_LOGIN:
         login_res_struct['server_random'] = server_random
         msg_payload = self.build_login_res(login_res_struct)
 
-        # DEBUG 
         if self.DEBUG:
             print('Outgoing login response payload (' + str(len(msg_payload)) + '):')
             print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
             print('------------------------------------------')
-        # DEBUG 
 
         # Derive session keys
         client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
             self.derive_session_keys(login_req_struct['client_random'], server_random)
 
-        # DEBUG
         if self.DEBUG:
             print('Derived session keys:')
             print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
             print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
             print('------------------------------------------')
-        # DEBUG
 
         # Set session keys in MTP (server side, so is_client=False)
         self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=False)
@@ -363,25 +300,14 @@ class SiFT_LOGIN:
         self.mtp.sqn_send = 0
         self.mtp.sqn_receive = 0
 
-        # DEBUG 
         if self.DEBUG:
             print('User ' + login_req_struct['username'] + ' logged in')
-        # DEBUG 
 
         return login_req_struct['username']
 
 
+    # Handle login on client side
     def handle_login_client(self, username, password):
-        """
-        Handle login process on the client side.
-        
-        Args:
-            username: Username for login
-            password: Password for login
-        
-        Raises:
-            SiFT_LOGIN_Error: On any login failure
-        """
         if not self.rsa_key or self.rsa_key.has_private():
             raise SiFT_LOGIN_Error('RSA public key required for client login')
 
@@ -411,20 +337,18 @@ class SiFT_LOGIN:
         login_req_struct['client_random'] = client_random
         msg_payload = self.build_login_req(login_req_struct)
 
-        # DEBUG 
         if self.DEBUG:
             print('Outgoing login request payload (' + str(len(msg_payload)) + '):')
             print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
             print('ETK (' + str(len(etk)) + '): ' + etk.hex()[:64] + '...')
             print('------------------------------------------')
-        # DEBUG 
 
         # Compute hash of request payload
         hash_fn = SHA256.new()
         hash_fn.update(msg_payload)
         request_hash = hash_fn.digest()
 
-        # Send login request (with encrypted temporary key)
+        # Send login request (w/ encrypted temporary key)
         try:
             self.mtp.send_msg(self.mtp.type_login_req, msg_payload, etk=etk)
         except SiFT_MTP_Error as e:
@@ -436,12 +360,10 @@ class SiFT_LOGIN:
         except SiFT_MTP_Error as e:
             raise SiFT_LOGIN_Error('Unable to receive login response --> ' + e.err_msg)
 
-        # DEBUG 
         if self.DEBUG:
             print('Incoming login response payload (' + str(len(msg_payload)) + '):')
             print(msg_payload[:max(512, len(msg_payload))].decode('utf-8'))
             print('------------------------------------------')
-        # DEBUG 
 
         if msg_type != self.mtp.type_login_res:
             raise SiFT_LOGIN_Error('Login response expected, but received something else')
@@ -464,13 +386,11 @@ class SiFT_LOGIN:
         client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
             self.derive_session_keys(client_random, login_res_struct['server_random'])
 
-        # DEBUG
         if self.DEBUG:
             print('Derived session keys:')
             print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
             print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
             print('------------------------------------------')
-        # DEBUG
 
         # Set session keys in MTP (client side, so is_client=True)
         self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=True)
@@ -479,7 +399,5 @@ class SiFT_LOGIN:
         self.mtp.sqn_send = 0
         self.mtp.sqn_receive = 0
 
-        # DEBUG
         if self.DEBUG:
             print('Login successful, session keys established')
-        # DEBUG
