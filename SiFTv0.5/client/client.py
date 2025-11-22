@@ -167,7 +167,6 @@ class SiFTShell(cmd.Cmd):
                     except SiFT_DNL_Error as e:
                         print('Remote_Error: ' + e.err_msg)
                     else:
-                        # we could also check here that file_hash is equal to cmd_res_struct['result_3']
                         print('Completed.')
 
                 else:
@@ -187,7 +186,6 @@ class SiFTShell(cmd.Cmd):
         return True
 
 
-# --------------------------------------
 if __name__ == '__main__':
 
     # Check if public key file exists
