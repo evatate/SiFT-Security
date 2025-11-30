@@ -15,7 +15,7 @@ class SiFT_CMD_Error(Exception):
 class SiFT_CMD:
     def __init__(self, mtp):
 
-        self.DEBUG = True
+        self.DEBUG = False  # Set to True only for development debugging
         # --------- CONSTANTS ------------
         self.delimiter = '\n'
         self.coding = 'utf-8'
