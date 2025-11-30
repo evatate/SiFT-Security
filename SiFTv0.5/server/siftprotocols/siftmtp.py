@@ -54,7 +54,7 @@ class SiFT_MTP:
         self.sqn_send = 0
         self.sqn_receive = 0
         
-        # Encryption keys (to be set by login protocol)
+        # Encryption keys
         self.client_encrypt_key = None
         self.server_encrypt_key = None
         
@@ -65,14 +65,8 @@ class SiFT_MTP:
         self.is_client = None  # Will be set when keys are established
 
 
+    # Set temporary key for login protocol
     def set_temp_key(self, temp_key, is_client=True):
-        """
-        Set temporary key for login request encryption.
-        
-        Args:
-            temp_key: 32-byte AES key for login_req message
-            is_client: True if this is the client side (default: True)
-        """
         if len(temp_key) != 32:
             raise SiFT_MTP_Error('Temporary key must be 32 bytes')
         self.temp_key = temp_key
@@ -80,55 +74,24 @@ class SiFT_MTP:
         if self.is_client is None:
             self.is_client = is_client
 
-
+    # Set session encryption keys after login completes
     def set_session_keys(self, client_encrypt_key, server_encrypt_key, is_client):
-        """
-        Set session keys derived from login protocol.
-        
-        Args:
-            client_encrypt_key: 32-byte key for client->server messages
-            server_encrypt_key: 32-byte key for server->client messages
-            is_client: True if this is the client side, False if server side
-        """
         if len(client_encrypt_key) != 32 or len(server_encrypt_key) != 32:
             raise SiFT_MTP_Error('Encryption keys must be 32 bytes each')
         
         self.client_encrypt_key = client_encrypt_key
         self.server_encrypt_key = server_encrypt_key
         self.is_client = is_client
-        
-        # Note: Sequence numbers will be reset after login exchange completes
 
-
+    # Determine which encryption key to use
     def _get_encryption_key(self, sending):
-        """
-        Get the appropriate encryption key based on direction.
-        
-        Args:
-            sending: True if sending a message, False if receiving
-        
-        Returns:
-            The appropriate encryption key
-        """
         if self.is_client:
             return self.client_encrypt_key if sending else self.server_encrypt_key
         else:
             return self.server_encrypt_key if sending else self.client_encrypt_key
 
-
+    # Determine direction field for nonce
     def _get_direction(self, sending):
-        """
-        Get the direction indicator for nonce construction.
-        
-        Args:
-            sending: True if sending a message, False if receiving
-        
-        Returns:
-            Direction bytes for nonce
-        
-        Raises:
-            SiFT_MTP_Error: If is_client is not set
-        """
         if self.is_client is None:
             raise SiFT_MTP_Error('Direction cannot be determined - is_client not set')
         
@@ -137,39 +100,12 @@ class SiFT_MTP:
         else:
             return self.dir_server_to_client if sending else self.dir_client_to_server
 
-
+    # Build nonce for AES-GCM
     def _build_nonce(self, sqn, rnd, rsv, direction):
-        """
-        Build 12-byte nonce for AES-GCM.
-        
-        Args:
-            sqn: 2-byte sequence number
-            rnd: 6-byte random value
-            rsv: 2-byte reserved field
-            direction: 2-byte direction indicator
-        
-        Returns:
-            12-byte nonce
-        """
         return sqn + rnd + rsv + direction
 
-
+    # Encrypt payload using AES-GCM
     def _encrypt_payload(self, payload, key, sqn, rnd, rsv, direction, header):
-        """
-        Encrypt payload using AES-GCM.
-        
-        Args:
-            payload: Plaintext payload
-            key: 32-byte encryption key
-            sqn: 2-byte sequence number
-            rnd: 6-byte random value
-            rsv: 2-byte reserved field
-            direction: 2-byte direction indicator
-            header: 16-byte message header (used as additional authenticated data)
-        
-        Returns:
-            Tuple of (encrypted_payload, mac_tag)
-        """
         # Build nonce
         nonce = self._build_nonce(sqn, rnd, rsv, direction)
         
@@ -185,26 +121,8 @@ class SiFT_MTP:
         return encrypted_payload, mac_tag
 
 
+    # Decrypt payload using AES-GCM
     def _decrypt_payload(self, encrypted_payload, mac_tag, key, sqn, rnd, rsv, direction, header):
-        """
-        Decrypt payload using AES-GCM and verify MAC.
-        
-        Args:
-            encrypted_payload: Ciphertext
-            mac_tag: 12-byte authentication tag
-            key: 32-byte encryption key
-            sqn: 2-byte sequence number
-            rnd: 6-byte random value
-            rsv: 2-byte reserved field
-            direction: 2-byte direction indicator
-            header: 16-byte message header (used as additional authenticated data)
-        
-        Returns:
-            Decrypted payload
-        
-        Raises:
-            SiFT_MTP_Error: If MAC verification fails
-        """
         # Build nonce
         nonce = self._build_nonce(sqn, rnd, rsv, direction)
         
@@ -222,17 +140,8 @@ class SiFT_MTP:
         
         return payload
 
-
+    # Parse message header
     def parse_msg_header(self, msg_hdr):
-        """
-        Parse message header into dictionary.
-        
-        Args:
-            msg_hdr: 16-byte header
-        
-        Returns:
-            Dictionary with header fields
-        """
         parsed_msg_hdr = {}
         i = 0
         
@@ -255,20 +164,8 @@ class SiFT_MTP:
         
         return parsed_msg_hdr
 
-
+    # Receive exact number of bytes from peer socket
     def receive_bytes(self, n):
-        """
-        Receive exactly n bytes from peer socket.
-        
-        Args:
-            n: Number of bytes to receive
-        
-        Returns:
-            Received bytes
-        
-        Raises:
-            SiFT_MTP_Error: If connection breaks or cannot receive
-        """
         bytes_received = b''
         bytes_count = 0
         while bytes_count < n:
@@ -283,16 +180,8 @@ class SiFT_MTP:
         return bytes_received
 
 
+    # Receive and decrypt a message
     def receive_msg(self):
-        """
-        Receive and decrypt a message.
-        
-        Returns:
-            Tuple of (msg_type, msg_payload)
-        
-        Raises:
-            SiFT_MTP_Error: On any receive or decryption error
-        """
         # Receive header
         try:
             msg_hdr = self.receive_bytes(self.size_msg_hdr)
@@ -316,7 +205,7 @@ class SiFT_MTP:
         # Get message length
         msg_len = int.from_bytes(parsed_msg_hdr['len'], byteorder='big')
         
-        # Calculate payload and MAC size (no etk handling here - login protocol does it manually)
+        # Calculate payload and MAC size
         body_len = msg_len - self.size_msg_hdr
         epd_len = body_len - self.size_msg_mac
 
@@ -376,35 +265,16 @@ class SiFT_MTP:
 
         return parsed_msg_hdr['typ'], msg_payload
 
-
+    # Send raw bytes via peer socket
     def send_bytes(self, bytes_to_send):
-        """
-        Send all bytes via peer socket.
-        
-        Args:
-            bytes_to_send: Bytes to send
-        
-        Raises:
-            SiFT_MTP_Error: If unable to send
-        """
         try:
             self.peer_socket.sendall(bytes_to_send)
         except:
             raise SiFT_MTP_Error('Unable to send via peer socket')
 
 
+    # Send and encrypt a message
     def send_msg(self, msg_type, msg_payload, etk=None):
-        """
-        Encrypt and send a message.
-        
-        Args:
-            msg_type: 2-byte message type
-            msg_payload: Plaintext payload
-            etk: Encrypted temporary key (256 bytes, only for login_req)
-        
-        Raises:
-            SiFT_MTP_Error: On any send or encryption error
-        """
         # Generate random field
         rnd = get_random_bytes(self.size_msg_hdr_rnd)
         
@@ -454,7 +324,7 @@ class SiFT_MTP:
         except Exception as e:
             raise SiFT_MTP_Error('Encryption failed --> ' + str(e))
 
-        # Build complete message
+        # build complete message
         if msg_type == self.type_login_req:
             msg = msg_hdr + encrypted_payload + mac + etk
         else:
@@ -471,7 +341,7 @@ class SiFT_MTP:
             print('------------------------------------------')
         # DEBUG 
 
-        # Send message
+        # send message
         try:
             self.send_bytes(msg)
         except SiFT_MTP_Error as e:
