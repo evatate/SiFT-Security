@@ -21,31 +21,20 @@ class SiFT_LOGIN:
         # --------- CONSTANTS ------------
         self.delimiter = '\n'
         self.coding = 'utf-8'
-        self.size_temp_key = 32  # 32-byte AES key
-        self.size_random = 16    # 16-byte random value
+        self.size_temp_key = 32 # 32-byte AES key
+        self.size_random = 16 # 16-byte random value
         # --------- STATE ------------
         self.mtp = mtp
         self.server_users = None
         self.rsa_key = None  # RSA key (public for client, private for server)
 
-
+    # Set RSA key (public or private)
     def set_rsa_key(self, rsa_key):
-        """
-        Set RSA key for encryption/decryption.
-        
-        Args:
-            rsa_key: RSA public key (client) or private key (server)
-        """
         self.rsa_key = rsa_key
 
 
+    # Load RSA public key from PEM file (for client)
     def load_rsa_public_key(self, pubkey_file):
-        """
-        Load RSA public key from PEM file (for client).
-        
-        Args:
-            pubkey_file: Path to PEM file containing public key
-        """
         try:
             with open(pubkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
@@ -58,13 +47,8 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to load RSA public key --> {str(e)}')
 
 
+    # Load RSA private key from PEM file (for server)
     def load_rsa_private_key(self, privkey_file):
-        """
-        Load RSA private key from PEM file (for server).
-        
-        Args:
-            privkey_file: Path to PEM file containing private key
-        """
         try:
             with open(privkey_file, 'rb') as f:
                 self.rsa_key = RSA.import_key(f.read())
@@ -77,26 +61,13 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to load RSA private key --> {str(e)}')
 
 
+    # Set server users database (for server)
     def set_server_users(self, users):
-        """
-        Set user passwords dictionary (to be used by the server).
-        
-        Args:
-            users: Dictionary mapping usernames to user credential structures
-        """
         self.server_users = users
 
 
+    # Build login request payload
     def build_login_req(self, login_req_struct):
-        """
-        Build login request payload.
-        
-        Args:
-            login_req_struct: Dictionary with 'timestamp', 'username', 'password', 'client_random'
-        
-        Returns:
-            Encoded login request payload
-        """
         login_req_str = str(login_req_struct['timestamp'])
         login_req_str += self.delimiter + login_req_struct['username']
         login_req_str += self.delimiter + login_req_struct['password']
@@ -104,16 +75,8 @@ class SiFT_LOGIN:
         return login_req_str.encode(self.coding)
 
 
+    # Parse login request payload
     def parse_login_req(self, login_req):
-        """
-        Parse login request payload.
-        
-        Args:
-            login_req: Encoded login request payload
-        
-        Returns:
-            Dictionary with parsed fields
-        """
         login_req_fields = login_req.decode(self.coding).split(self.delimiter)
         login_req_struct = {}
         login_req_struct['timestamp'] = int(login_req_fields[0])
@@ -123,31 +86,15 @@ class SiFT_LOGIN:
         return login_req_struct
 
 
+    # Build login response payload
     def build_login_res(self, login_res_struct):
-        """
-        Build login response payload.
-        
-        Args:
-            login_res_struct: Dictionary with 'request_hash' and 'server_random'
-        
-        Returns:
-            Encoded login response payload
-        """
         login_res_str = login_res_struct['request_hash'].hex()
         login_res_str += self.delimiter + login_res_struct['server_random'].hex()
         return login_res_str.encode(self.coding)
 
 
+    # Parse login response payload
     def parse_login_res(self, login_res):
-        """
-        Parse login response payload.
-        
-        Args:
-            login_res: Encoded login response payload
-        
-        Returns:
-            Dictionary with parsed fields
-        """
         login_res_fields = login_res.decode(self.coding).split(self.delimiter)
         login_res_struct = {}
         login_res_struct['request_hash'] = bytes.fromhex(login_res_fields[0])
@@ -155,17 +102,8 @@ class SiFT_LOGIN:
         return login_res_struct
 
 
+    # Check password against stored hash
     def check_password(self, pwd, usr_struct):
-        """
-        Check correctness of a provided password.
-        
-        Args:
-            pwd: Password to check
-            usr_struct: User structure with salt, pwdhash, icount
-        
-        Returns:
-            True if password is correct, False otherwise
-        """
         pwdhash = PBKDF2(pwd, usr_struct['salt'], len(usr_struct['pwdhash']), 
                         count=usr_struct['icount'], hmac_hash_module=SHA256)
         if pwdhash == usr_struct['pwdhash']: 
@@ -173,22 +111,13 @@ class SiFT_LOGIN:
         return False
 
 
+    # Derive session keys from client and server randoms
     def derive_session_keys(self, client_random, server_random):
-        """
-        Derive session keys using HKDF-SHA256.
-        
-        Args:
-            client_random: 16-byte client random value
-            server_random: 16-byte server random value
-        
-        Returns:
-            Tuple of (client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key)
-        """
-        # Master secret is concatenation of client and server randoms
+        # master secret is concatenation of client and server randoms
         master_secret = client_random + server_random
         
-        # Derive keys using HKDF-SHA256
-        # No salt (salt=None means use zeros)
+        # derive keys using HKDF-SHA256
+        # no salt
         client_encrypt_key = HKDF(master_secret, 32, salt=None, 
                                   hashmod=SHA256, context=b'client_encryption_key')
         client_mac_key = HKDF(master_secret, 32, salt=None, 
@@ -200,28 +129,15 @@ class SiFT_LOGIN:
         
         return client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key
 
-
+    # Handle login process on the server side
     def handle_login_server(self):
-        """
-        Handle login process on the server side.
-        
-        Returns:
-            Username of logged-in user
-        
-        Raises:
-            SiFT_LOGIN_Error: On any login failure
-        """
         if not self.server_users:
             raise SiFT_LOGIN_Error('User database is required for handling login at server')
 
         if not self.rsa_key or not self.rsa_key.has_private():
             raise SiFT_LOGIN_Error('RSA private key required for server login')
-
-        # First, we need to manually receive and decrypt the etk to get the temporary key
-        # This is because receive_msg() needs the temp_key to decrypt, but we need to 
-        # decrypt etk first to get temp_key - it's a chicken-and-egg problem
         
-        # Receive the header first
+        # receive header first
         try:
             msg_hdr = self.mtp.receive_bytes(self.mtp.size_msg_hdr)
         except SiFT_MTP_Error as e:
@@ -230,7 +146,7 @@ class SiFT_LOGIN:
         # Parse header
         parsed_msg_hdr = self.mtp.parse_msg_header(msg_hdr)
         
-        # Verify it's a login request
+        # Verify its a login request
         if parsed_msg_hdr['typ'] != self.mtp.type_login_req:
             raise SiFT_LOGIN_Error('Login request expected, but received something else')
         
@@ -273,7 +189,7 @@ class SiFT_LOGIN:
         except Exception as e:
             raise SiFT_LOGIN_Error(f'Failed to decrypt temporary key --> {str(e)}')
         
-        # Now decrypt the payload using the temporary key
+        # Decrypt the payload using the temporary key
         direction = self.mtp._get_direction(sending=False)
         
         try:
@@ -312,7 +228,7 @@ class SiFT_LOGIN:
         except Exception as e:
             raise SiFT_LOGIN_Error(f'Failed to parse login request --> {str(e)}')
 
-        # Verify timestamp (acceptance window: ±2 seconds as recommended)
+        # Verify timestamp (acceptance window: +-2 seconds)
         import time
         current_time_ns = time.time_ns()
         timestamp_diff_seconds = abs(current_time_ns - login_req_struct['timestamp']) / 1_000_000_000
@@ -381,27 +297,18 @@ class SiFT_LOGIN:
         return login_req_struct['username']
 
 
+    # Handle login process on the client side
     def handle_login_client(self, username, password):
-        """
-        Handle login process on the client side.
-        
-        Args:
-            username: Username for login
-            password: Password for login
-        
-        Raises:
-            SiFT_LOGIN_Error: On any login failure
-        """
         if not self.rsa_key or self.rsa_key.has_private():
             raise SiFT_LOGIN_Error('RSA public key required for client login')
 
-        # Explicitly set is_client FIRST
+        # explicitly set is_client FIRST
         self.mtp.is_client = True
 
-        # Generate temporary key
+        # Generate temp key
         temp_key = get_random_bytes(self.size_temp_key)
         
-        # Set temporary key in MTP for this login request (client side)
+        # Set temp key in MTP for this login request (client side)
         self.mtp.set_temp_key(temp_key, is_client=True)
 
         # Encrypt temporary key with server's RSA public key using RSA-OAEP
@@ -414,7 +321,7 @@ class SiFT_LOGIN:
         # Generate client random
         client_random = get_random_bytes(self.size_random)
 
-        # Get current timestamp (nanoseconds since epoch)
+        # Get current timestamp
         import time
         timestamp = time.time_ns()
 
@@ -439,7 +346,7 @@ class SiFT_LOGIN:
         hash_fn.update(msg_payload)
         request_hash = hash_fn.digest()
 
-        # Send login request (with encrypted temporary key)
+        # Send login request (w/ encrypted temporary key)
         try:
             self.mtp.send_msg(self.mtp.type_login_req, msg_payload, etk=etk)
         except SiFT_MTP_Error as e:
