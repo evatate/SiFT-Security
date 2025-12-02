@@ -11,7 +11,7 @@ class SiFT_DNL_Error(Exception):
 class SiFT_DNL:
     def __init__(self, mtp):
 
-        self.DEBUG = False  # Set to True only for development debugging
+        self.DEBUG = True  # Set to True only for development debugging
         # --------- CONSTANTS ------------
         self.size_fragment = 1024
         self.coding = 'utf-8'
