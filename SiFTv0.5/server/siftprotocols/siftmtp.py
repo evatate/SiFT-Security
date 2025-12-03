@@ -25,7 +25,7 @@ class SiFT_MTP:
         self.size_msg_hdr_rnd = 6
         self.size_msg_hdr_rsv = 2
         self.size_msg_mac = 12
-        self.size_nonce = 12  # sqn (2) + rnd (6) + rsv (2) + direction (2)
+        self.size_nonce = 8  # sqn (2) + rnd (6)
         self.size_etk = 256  # RSA-2048 encrypted key
         
         self.type_login_req =    b'\x00\x00'
@@ -43,7 +43,7 @@ class SiFT_MTP:
                           self.type_upload_req_0, self.type_upload_req_1, self.type_upload_res,
                           self.type_dnload_req, self.type_dnload_res_0, self.type_dnload_res_1)
         
-        # Direction indicators for nonce construction
+        # Direction indicators for nonce construction (not used in 8-byte nonce)
         self.dir_client_to_server = b'\x00\x00'
         self.dir_server_to_client = b'\x00\x01'
         
@@ -51,8 +51,8 @@ class SiFT_MTP:
         self.peer_socket = peer_socket
         
         # Sequence numbers for replay protection
-        self.sqn_send = 0
-        self.sqn_receive = 0
+        self.sqn_send = 1
+        self.sqn_receive = 1
         
         # Encryption keys
         self.client_encrypt_key = None
@@ -66,10 +66,12 @@ class SiFT_MTP:
 
 
     # Set temporary key for login protocol
-    def set_temp_key(self, temp_key, is_client=True):
+    def set_temp_key(self, temp_key, is_client=False):
         if len(temp_key) != 32:
             raise SiFT_MTP_Error('Temporary key must be 32 bytes')
         self.temp_key = temp_key
+        if self.DEBUG:
+            print(f'Temporary key set: {temp_key.hex()}')
         # Set is_client for direction determination
         if self.is_client is None:
             self.is_client = is_client
@@ -90,7 +92,7 @@ class SiFT_MTP:
         else:
             return self.server_encrypt_key if sending else self.client_encrypt_key
 
-    # Determine direction field for nonce
+    # Determine direction field for nonce (not used in 8-byte nonce)
     def _get_direction(self, sending):
         if self.is_client is None:
             raise SiFT_MTP_Error('Direction cannot be determined - is_client not set')
@@ -100,14 +102,14 @@ class SiFT_MTP:
         else:
             return self.dir_server_to_client if sending else self.dir_client_to_server
 
-    # Build nonce for AES-GCM
-    def _build_nonce(self, sqn, rnd, rsv, direction):
-        return sqn + rnd + rsv + direction
+    # Build nonce for AES-GCM (only uses sqn + rnd)
+    def _build_nonce(self, sqn, rnd):
+        return sqn + rnd
 
     # Encrypt payload using AES-GCM
-    def _encrypt_payload(self, payload, key, sqn, rnd, rsv, direction, header):
+    def _encrypt_payload(self, payload, key, sqn, rnd, header):
         # Build nonce
-        nonce = self._build_nonce(sqn, rnd, rsv, direction)
+        nonce = self._build_nonce(sqn, rnd)
         
         # Create AES-GCM cipher
         cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=self.size_msg_mac)
@@ -122,9 +124,9 @@ class SiFT_MTP:
 
 
     # Decrypt payload using AES-GCM
-    def _decrypt_payload(self, encrypted_payload, mac_tag, key, sqn, rnd, rsv, direction, header):
+    def _decrypt_payload(self, encrypted_payload, mac_tag, key, sqn, rnd, header):
         # Build nonce
-        nonce = self._build_nonce(sqn, rnd, rsv, direction)
+        nonce = self._build_nonce(sqn, rnd)
         
         # Create AES-GCM cipher
         cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=self.size_msg_mac)
@@ -207,7 +209,12 @@ class SiFT_MTP:
         
         # Calculate payload and MAC size
         body_len = msg_len - self.size_msg_hdr
-        epd_len = body_len - self.size_msg_mac
+        
+        # Check if this is a login request (which has ETK)
+        if parsed_msg_hdr['typ'] == self.type_login_req:
+            epd_len = body_len - self.size_msg_mac - self.size_etk  # Subtract ETK size
+        else:
+            epd_len = body_len - self.size_msg_mac
 
         # Receive encrypted payload
         try:
@@ -235,11 +242,11 @@ class SiFT_MTP:
         if sqn_received != self.sqn_receive:
             raise SiFT_MTP_Error(f'Sequence number mismatch - expected {self.sqn_receive}, got {sqn_received}')
 
-        # Determine which key to use (temp_key for login_res, session keys for everything else)
-        if parsed_msg_hdr['typ'] == self.type_login_res:
-            # Login response uses temporary key
+        # Determine which key to use (temp_key for login_req, session keys for everything else)
+        if parsed_msg_hdr['typ'] == self.type_login_req or parsed_msg_hdr['typ'] == self.type_login_res:
+            # Login messages use temporary key
             if self.temp_key is None:
-                raise SiFT_MTP_Error('Temporary key not set for login response')
+                raise SiFT_MTP_Error('Temporary key not set for login message')
             key = self.temp_key
         else:
             # Other messages use session keys
@@ -247,15 +254,11 @@ class SiFT_MTP:
             if key is None:
                 raise SiFT_MTP_Error('Session keys not set')
 
-        # Get direction for nonce
-        direction = self._get_direction(sending=False)
-
         # Decrypt payload
         try:
             msg_payload = self._decrypt_payload(
                 encrypted_payload, mac, key,
-                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], 
-                parsed_msg_hdr['rsv'], direction, msg_hdr
+                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], msg_hdr
             )
         except SiFT_MTP_Error as e:
             raise SiFT_MTP_Error('Decryption failed --> ' + e.err_msg)
@@ -299,9 +302,6 @@ class SiFT_MTP:
             if key is None:
                 raise SiFT_MTP_Error('Session keys not set')
         
-        # Get direction for nonce
-        direction = self._get_direction(sending=True)
-        
         # Build header (without length first)
         msg_hdr_without_len = self.msg_hdr_ver + msg_type
         
@@ -319,7 +319,7 @@ class SiFT_MTP:
         # Encrypt payload
         try:
             encrypted_payload, mac = self._encrypt_payload(
-                msg_payload, key, sqn, rnd, rsv, direction, msg_hdr
+                msg_payload, key, sqn, rnd, msg_hdr
             )
         except Exception as e:
             raise SiFT_MTP_Error('Encryption failed --> ' + str(e))

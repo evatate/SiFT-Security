@@ -25,7 +25,7 @@ class SiFT_MTP:
         self.size_msg_hdr_rnd = 6
         self.size_msg_hdr_rsv = 2
         self.size_msg_mac = 12
-        self.size_nonce = 12  # sqn (2) + rnd (6) + rsv (2) + direction (2)
+        self.size_nonce = 8  # sqn (2) + rnd (6)
         self.size_etk = 256  # RSA-2048 encrypted key
         
         self.type_login_req =    b'\x00\x00'
@@ -70,6 +70,8 @@ class SiFT_MTP:
         if len(temp_key) != 32:
             raise SiFT_MTP_Error('Temporary key must be 32 bytes')
         self.temp_key = temp_key
+        if self.DEBUG:
+            print(f'Temporary key set: {temp_key.hex()}')
         if self.is_client is None:
             self.is_client = is_client
 
@@ -102,15 +104,15 @@ class SiFT_MTP:
             return self.dir_server_to_client if sending else self.dir_client_to_server
 
 
-    # Build nonce for AES-GCM
-    def _build_nonce(self, sqn, rnd, rsv, direction):
-        return sqn + rnd + rsv + direction
+    # Build nonce for AES-GCM (only uses sqn + rnd)
+    def _build_nonce(self, sqn, rnd):
+        return sqn + rnd
 
 
     # Encrypt payload using AES-GCM
-    def _encrypt_payload(self, payload, key, sqn, rnd, rsv, direction, header):
+    def _encrypt_payload(self, payload, key, sqn, rnd, header):
         # Build nonce
-        nonce = self._build_nonce(sqn, rnd, rsv, direction)
+        nonce = self._build_nonce(sqn, rnd)
         
         # Create AES-GCM cipher
         cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=self.size_msg_mac)
@@ -125,9 +127,9 @@ class SiFT_MTP:
 
 
     # Decrypt payload using AES-GCM and verify MAC
-    def _decrypt_payload(self, encrypted_payload, mac_tag, key, sqn, rnd, rsv, direction, header):
+    def _decrypt_payload(self, encrypted_payload, mac_tag, key, sqn, rnd, header):
         # Build nonce
-        nonce = self._build_nonce(sqn, rnd, rsv, direction)
+        nonce = self._build_nonce(sqn, rnd)
         
         # Create AES-GCM cipher
         cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=self.size_msg_mac)
@@ -212,8 +214,13 @@ class SiFT_MTP:
         
         # Calculate payload and MAC size
         body_len = msg_len - self.size_msg_hdr
-        epd_len = body_len - self.size_msg_mac
-
+        
+        # Check if this is a login request (which has ETK)
+        if parsed_msg_hdr['typ'] == self.type_login_req:
+            epd_len = body_len - self.size_msg_mac - self.size_etk  # Subtract ETK size
+        else:
+            epd_len = body_len - self.size_msg_mac
+            
         # Receive encrypted payload
         try:
             encrypted_payload = self.receive_bytes(epd_len)
@@ -250,15 +257,11 @@ class SiFT_MTP:
             if key is None:
                 raise SiFT_MTP_Error('Session keys not set')
 
-        # Get direction for nonce
-        direction = self._get_direction(sending=False)
-
         # Decrypt payload
         try:
             msg_payload = self._decrypt_payload(
                 encrypted_payload, mac, key,
-                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], 
-                parsed_msg_hdr['rsv'], direction, msg_hdr
+                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], msg_hdr
             )
         except SiFT_MTP_Error as e:
             raise SiFT_MTP_Error('Decryption failed --> ' + e.err_msg)
@@ -303,9 +306,6 @@ class SiFT_MTP:
             if key is None:
                 raise SiFT_MTP_Error('Session keys not set')
         
-        # Get direction for nonce
-        direction = self._get_direction(sending=True)
-        
         # Build header
         msg_hdr_without_len = self.msg_hdr_ver + msg_type
         
@@ -323,7 +323,7 @@ class SiFT_MTP:
         # Encrypt payload
         try:
             encrypted_payload, mac = self._encrypt_payload(
-                msg_payload, key, sqn, rnd, rsv, direction, msg_hdr
+                msg_payload, key, sqn, rnd, msg_hdr
             )
         except Exception as e:
             raise SiFT_MTP_Error('Encryption failed --> ' + str(e))
@@ -351,3 +351,4 @@ class SiFT_MTP:
         
         # Increment send sequence number
         self.sqn_send += 1
+        print (self.sqn_send)

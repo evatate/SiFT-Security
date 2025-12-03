@@ -10,9 +10,11 @@ from siftprotocols.siftdnl import SiFT_DNL, SiFT_DNL_Error
 
 # ----------- CONFIG -------------
 server_ip = '127.0.0.1' # localhost
-# server_ip = '192.168.x.y'
+#server_ip = '192.168.20.60'
 server_port = 5150
 pubkey_file = 'server_pubkey.pem'  # Server's RSA public key
+#pubkey_file = 'reference_server_pubkey.pem'  # Server's RSA public key
+
 # --------------------------------
 
 class SiFTShell(cmd.Cmd):

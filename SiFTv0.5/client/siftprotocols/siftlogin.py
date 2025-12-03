@@ -230,10 +230,10 @@ class SiFT_LOGIN:
 
         # Verify timestamp (acceptance window: +-2 seconds)
         import time
-        current_time_ns = time.time_ns()
-        timestamp_diff_seconds = abs(current_time_ns - login_req_struct['timestamp']) / 1_000_000_000
+        current_time = int(time.time_ns())
+        timestamp_diff_seconds = abs(current_time - login_req_struct['timestamp'])
         
-        if timestamp_diff_seconds > 2.0:
+        if timestamp_diff_seconds > 2000000000:
             raise SiFT_LOGIN_Error(f'Timestamp verification failed - difference: {timestamp_diff_seconds:.2f} seconds')
 
         # Verify client_random size
@@ -286,8 +286,8 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error('Unable to send login response --> ' + e.err_msg)
 
         # Reset sequence numbers for the actual session (after login exchange)
-        self.mtp.sqn_send = 0
-        self.mtp.sqn_receive = 0
+        self.mtp.sqn_send = 1
+        self.mtp.sqn_receive = 1
 
         # DEBUG 
         if self.DEBUG:
@@ -323,7 +323,7 @@ class SiFT_LOGIN:
 
         # Get current timestamp
         import time
-        timestamp = time.time_ns()
+        timestamp = int(time.time() * 1000000000)
 
         # Build login request
         login_req_struct = {}
@@ -398,8 +398,8 @@ class SiFT_LOGIN:
         self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=True)
 
         # Reset sequence numbers for the actual session (after login exchange)
-        self.mtp.sqn_send = 0
-        self.mtp.sqn_receive = 0
+        self.mtp.sqn_send = 1
+        self.mtp.sqn_receive = 1
 
         # DEBUG
         if self.DEBUG:
