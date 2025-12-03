@@ -1,6 +1,5 @@
 #python3
 
-import os
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
@@ -14,8 +13,6 @@ class SiFT_MTP:
 
         self.DEBUG = True  # Set to True only for development debugging
         # --------- CONSTANTS ------------
-        self.version_major = 1
-        self.version_minor = 0
         self.msg_hdr_ver = b'\x01\x00'
         self.size_msg_hdr = 16
         self.size_msg_hdr_ver = 2
@@ -25,7 +22,6 @@ class SiFT_MTP:
         self.size_msg_hdr_rnd = 6
         self.size_msg_hdr_rsv = 2
         self.size_msg_mac = 12
-        self.size_nonce = 8  # sqn (2) + rnd (6)
         self.size_etk = 256  # RSA-2048 encrypted key
         
         self.type_login_req =    b'\x00\x00'
@@ -43,26 +39,22 @@ class SiFT_MTP:
                           self.type_upload_req_0, self.type_upload_req_1, self.type_upload_res,
                           self.type_dnload_req, self.type_dnload_res_0, self.type_dnload_res_1)
         
-        # Direction indicators for nonce construction
-        self.dir_client_to_server = b'\x00\x00'
-        self.dir_server_to_client = b'\x00\x01'
-        
         # --------- STATE ------------
         self.peer_socket = peer_socket
         
         # Sequence numbers for replay protection
-        self.sqn_send = 0
-        self.sqn_receive = 0
+        self.sqn_send = 1
+        self.sqn_receive = 1
         
         # Encryption keys (to be set by login protocol)
         self.client_encrypt_key = None
         self.server_encrypt_key = None
         
-        # Temporary key (used only for login_req message)
+        # Temporary key (used only for login messages)
         self.temp_key = None
         
-        # Flag to indicate if we're client or server (for direction field)
-        self.is_client = None  # will be set when keys are established
+        # Flag to indicate if we're client or server
+        self.is_client = None
 
 
     # Set temporary key for login request encryption
@@ -93,18 +85,7 @@ class SiFT_MTP:
             return self.server_encrypt_key if sending else self.client_encrypt_key
 
 
-    # Get direction indicator for nonce construction
-    def _get_direction(self, sending):
-        if self.is_client is None:
-            raise SiFT_MTP_Error('Direction cannot be determined - is_client not set')
-        
-        if self.is_client:
-            return self.dir_client_to_server if sending else self.dir_server_to_client
-        else:
-            return self.dir_server_to_client if sending else self.dir_client_to_server
-
-
-    # Build nonce for AES-GCM (only uses sqn + rnd)
+    # Build nonce for AES-GCM
     def _build_nonce(self, sqn, rnd):
         return sqn + rnd
 
@@ -233,23 +214,25 @@ class SiFT_MTP:
         except SiFT_MTP_Error as e:
             raise SiFT_MTP_Error('Unable to receive MAC --> ' + e.err_msg)
 
+        # DEBUG 
         if self.DEBUG:
             print('MTP message received (' + str(msg_len) + '):')
             print('HDR (' + str(len(msg_hdr)) + '): ' + msg_hdr.hex())
             print('EPD (' + str(len(encrypted_payload)) + '): ' + encrypted_payload.hex())
             print('MAC (' + str(len(mac)) + '): ' + mac.hex())
             print('------------------------------------------')
+        # DEBUG 
 
         # Verify sequence number
         sqn_received = int.from_bytes(parsed_msg_hdr['sqn'], byteorder='big')
         if sqn_received != self.sqn_receive:
             raise SiFT_MTP_Error(f'Sequence number mismatch - expected {self.sqn_receive}, got {sqn_received}')
 
-        # Determine which key to use (temp_key for login_res, session keys for everything else)
-        if parsed_msg_hdr['typ'] == self.type_login_res:
-            # Login response uses temporary key
+        # Determine which key to use (temp_key for login messages, session keys for everything else)
+        if parsed_msg_hdr['typ'] == self.type_login_req or parsed_msg_hdr['typ'] == self.type_login_res:
+            # Login messages use temporary key
             if self.temp_key is None:
-                raise SiFT_MTP_Error('Temporary key not set for login response')
+                raise SiFT_MTP_Error('Temporary key not set for login message')
             key = self.temp_key
         else:
             # Other messages use session keys
@@ -334,6 +317,7 @@ class SiFT_MTP:
         else:
             msg = msg_hdr + encrypted_payload + mac
 
+        # DEBUG 
         if self.DEBUG:
             print('MTP message to send (' + str(msg_len) + '):')
             print('HDR (' + str(len(msg_hdr)) + '): ' + msg_hdr.hex())
@@ -342,6 +326,7 @@ class SiFT_MTP:
             if etk:
                 print('ETK (' + str(len(etk)) + '): ' + etk.hex())
             print('------------------------------------------')
+        # DEBUG 
 
         # Send message
         try:
@@ -351,4 +336,3 @@ class SiFT_MTP:
         
         # Increment send sequence number
         self.sqn_send += 1
-        print (self.sqn_send)

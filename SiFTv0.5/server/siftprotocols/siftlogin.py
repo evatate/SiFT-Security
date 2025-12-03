@@ -1,6 +1,6 @@
 #python3
 
-import os
+import time
 from Crypto.Hash import SHA256
 from Crypto.Protocol.KDF import PBKDF2, HKDF
 from Crypto.PublicKey import RSA
@@ -117,17 +117,12 @@ class SiFT_LOGIN:
         master_secret = client_random + server_random
         
         # derive keys using HKDF-SHA256
-        # no salt
         client_encrypt_key = HKDF(master_secret, 32, salt=None, 
                                   hashmod=SHA256, context=b'client_encryption_key')
-        client_mac_key = HKDF(master_secret, 32, salt=None, 
-                             hashmod=SHA256, context=b'client_MAC_key')
         server_encrypt_key = HKDF(master_secret, 32, salt=None, 
                                   hashmod=SHA256, context=b'server_encryption_key')
-        server_mac_key = HKDF(master_secret, 32, salt=None, 
-                             hashmod=SHA256, context=b'server_MAC_key')
         
-        return client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key
+        return client_encrypt_key, server_encrypt_key
 
     # Handle login process on the server side
     def handle_login_server(self):
@@ -190,13 +185,10 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to decrypt temporary key --> {str(e)}')
         
         # Decrypt the payload using the temporary key
-        direction = self.mtp._get_direction(sending=False)
-        
         try:
             msg_payload = self.mtp._decrypt_payload(
                 encrypted_payload, mac, temp_key,
-                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], 
-                parsed_msg_hdr['rsv'], direction, msg_hdr
+                parsed_msg_hdr['sqn'], parsed_msg_hdr['rnd'], msg_hdr
             )
         except SiFT_MTP_Error as e:
             raise SiFT_LOGIN_Error('Failed to decrypt login request --> ' + e.err_msg)
@@ -229,8 +221,7 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error(f'Failed to parse login request --> {str(e)}')
 
         # Verify timestamp (acceptance window: +-2 seconds)
-        import time
-        current_time = int(time.time())
+        current_time = int(time.time_ns())
         timestamp_diff_seconds = abs(current_time - login_req_struct['timestamp'])
         
         if timestamp_diff_seconds > 2000000000:
@@ -265,7 +256,7 @@ class SiFT_LOGIN:
         # DEBUG 
 
         # Derive session keys
-        client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
+        client_encrypt_key, server_encrypt_key = \
             self.derive_session_keys(login_req_struct['client_random'], server_random)
 
         # DEBUG
@@ -322,8 +313,7 @@ class SiFT_LOGIN:
         client_random = get_random_bytes(self.size_random)
 
         # Get current timestamp
-        import time
-        timestamp = time.time_ns()
+        timestamp = int(time.time() * 1000000000)
 
         # Build login request
         login_req_struct = {}
@@ -383,7 +373,7 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error('Server random has incorrect size')
 
         # Derive session keys
-        client_encrypt_key, client_mac_key, server_encrypt_key, server_mac_key = \
+        client_encrypt_key, server_encrypt_key = \
             self.derive_session_keys(client_random, login_res_struct['server_random'])
 
         # DEBUG
