@@ -112,17 +112,19 @@ class SiFT_LOGIN:
 
 
     # Derive session keys from client and server randoms
-    def derive_session_keys(self, client_random, server_random):
-        # master secret is concatenation of client and server randoms
-        master_secret = client_random + server_random
-        
-        # derive keys using HKDF-SHA256
-        client_encrypt_key = HKDF(master_secret, 32, salt=None, 
-                                  hashmod=SHA256, context=b'client_encryption_key')
-        server_encrypt_key = HKDF(master_secret, 32, salt=None, 
-                                  hashmod=SHA256, context=b'server_encryption_key')
-        
-        return client_encrypt_key, server_encrypt_key
+    def derive_session_keys(self, client_random, server_random, request_hash):
+        ikm = client_random + server_random
+    
+        # use request_hash as salt
+        final_transfer_key = HKDF(
+            master=ikm,
+            key_len=32,
+            salt=request_hash,
+            hashmod=SHA256
+        )
+    
+        # Retrn same key twice for compatibility
+        return final_transfer_key, final_transfer_key
 
     # Handle login process on the server side
     def handle_login_server(self):
@@ -256,19 +258,18 @@ class SiFT_LOGIN:
         # DEBUG 
 
         # Derive session keys
-        client_encrypt_key, server_encrypt_key = \
-            self.derive_session_keys(login_req_struct['client_random'], server_random)
+        final_transfer_key, _ = \
+            self.derive_session_keys(login_req_struct['client_random'], server_random, request_hash)
 
         # DEBUG
         if self.DEBUG:
             print('Derived session keys:')
-            print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
-            print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
+            print(f'  final_transfer_key: {final_transfer_key.hex()}')  # ← FIXED
             print('------------------------------------------')
         # DEBUG
 
         # Set session keys in MTP (server side, so is_client=False)
-        self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=False)
+        self.mtp.set_session_keys(final_transfer_key, final_transfer_key, is_client=False)
 
         # Send login response
         try:
@@ -373,19 +374,19 @@ class SiFT_LOGIN:
             raise SiFT_LOGIN_Error('Server random has incorrect size')
 
         # Derive session keys
-        client_encrypt_key, server_encrypt_key = \
-            self.derive_session_keys(client_random, login_res_struct['server_random'])
+        final_transfer_key, _ = \
+            self.derive_session_keys(client_random, login_res_struct['server_random'], request_hash)
+
 
         # DEBUG
         if self.DEBUG:
             print('Derived session keys:')
-            print(f'  client_encrypt_key: {client_encrypt_key.hex()}')
-            print(f'  server_encrypt_key: {server_encrypt_key.hex()}')
+            print(f'  final_transfer_key: {final_transfer_key.hex()}')  # ← FIXED
             print('------------------------------------------')
         # DEBUG
 
         # Set session keys in MTP (client side, so is_client=True)
-        self.mtp.set_session_keys(client_encrypt_key, server_encrypt_key, is_client=True)
+        self.mtp.set_session_keys(final_transfer_key, final_transfer_key, is_client=True)
 
         # Reset sequence numbers for the actual session (after login exchange)
         self.mtp.sqn_send = 1
