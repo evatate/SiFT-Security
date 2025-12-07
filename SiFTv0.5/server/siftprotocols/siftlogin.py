@@ -277,10 +277,6 @@ class SiFT_LOGIN:
         except SiFT_MTP_Error as e:
             raise SiFT_LOGIN_Error('Unable to send login response --> ' + e.err_msg)
 
-        # Reset sequence numbers for the actual session (after login exchange)
-        self.mtp.sqn_send = 1
-        self.mtp.sqn_receive = 1
-
         # DEBUG 
         if self.DEBUG:
             print('User ' + login_req_struct['username'] + ' logged in')
@@ -387,10 +383,6 @@ class SiFT_LOGIN:
 
         # Set session keys in MTP (client side, so is_client=True)
         self.mtp.set_session_keys(final_transfer_key, final_transfer_key, is_client=True)
-
-        # Reset sequence numbers for the actual session (after login exchange)
-        self.mtp.sqn_send = 1
-        self.mtp.sqn_receive = 1
 
         # DEBUG
         if self.DEBUG:
